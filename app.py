@@ -16,13 +16,28 @@ from utils.serper_client import get_serper_results
 from utils.scraper_with_markdownify import scrape_to_markdown
 from openai import OpenAI, RateLimitError as OpenAIRateLimitError
 import anthropic
+import google.generativeai as genai
 import json
 import re
 
 
 def _run_completion(prompt: str, temperature: float = 0.7) -> str:
-    """OpenAI primary, Anthropic fallback on quota/rate-limit errors."""
-    # ── Try OpenAI ────────────────────────────────────────────────────────────
+    """Gemini primary (free), OpenAI fallback, Anthropic last resort."""
+    # ── 1. Gemini (primary — free tier) ──────────────────────────────────────
+    gemini_key = st.secrets.get("GEMINI_API_KEY")
+    if gemini_key:
+        try:
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(temperature=temperature),
+            )
+            return response.text.strip()
+        except Exception:
+            pass  # any Gemini failure → try OpenAI
+
+    # ── 2. OpenAI (fallback 1) ────────────────────────────────────────────────
     openai_key = st.secrets.get("OPENAI_API_KEY")
     if openai_key:
         try:
@@ -34,12 +49,12 @@ def _run_completion(prompt: str, temperature: float = 0.7) -> str:
             )
             return response.choices[0].message.content or ""
         except OpenAIRateLimitError:
-            pass  # quota/rate-limit → fall through to Anthropic
+            pass  # quota/rate-limit → try Anthropic
 
-    # ── Fallback: Anthropic ───────────────────────────────────────────────────
+    # ── 3. Anthropic (fallback 2) ─────────────────────────────────────────────
     anthropic_key = st.secrets.get("ANTHROPIC_API_KEY")
     if not anthropic_key:
-        st.error("❌ OpenAI quota exceeded and no ANTHROPIC_API_KEY set as fallback.")
+        st.error("❌ All AI providers failed or no API keys configured.")
         st.stop()
 
     client = anthropic.Anthropic(api_key=anthropic_key)
