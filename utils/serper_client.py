@@ -40,8 +40,20 @@ def get_serper_results(api_key: str, keyword: str,
     if response.status_code == 403:
         st.error("🚨 Invalid Serper.dev API Key!")
         st.stop()
+
+    if response.status_code == 400:
+        body = response.json() if response.content else {}
+        if "credits" in body.get("message", "").lower():
+            st.error(
+                "🪫 Serper.dev credits exhausted. "
+                "Top up or generate a new API key at [serper.dev](https://serper.dev)."
+            )
+        else:
+            st.error(f"❌ Serper.dev error 400: {body.get('message', response.text)}")
+        st.stop()
+
     if response.status_code != 200:
-        st.error(f"❌ Error {response.status_code}: {response.text}")
+        st.error(f"❌ Serper.dev error {response.status_code}: {response.text}")
         st.stop()
 
     return response.json().get("organic", [])
