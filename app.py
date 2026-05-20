@@ -351,7 +351,7 @@ with st.expander("⚙️ Search Settings", expanded=True):
 
     with col_kw:
         keyword = st.text_input("Primary Keyword",
-                                placeholder="e.g. modal usaha toko skincare")
+                                placeholder="e.g. cara riset keyword untuk artikel blog")
 
     with col_country:
         all_countries = _load_countries()
