@@ -13,15 +13,59 @@ import geonamescache
 import requests
 from datetime import datetime
 from utils.serper_client import get_serper_results
-from utils.serp_module import analyze_serp_intent
 from utils.scraper_with_markdownify import scrape_to_markdown
-from openai import OpenAI
+from openai import OpenAI, RateLimitError as OpenAIRateLimitError
+import anthropic
 import json
 import re
 
-def _get_openai_client() -> OpenAI:
-    api_key = st.secrets.get("OPENAI_API_KEY") or None
-    return OpenAI(api_key=api_key)
+
+def _run_completion(prompt: str, temperature: float = 0.7) -> str:
+    """OpenAI primary, Anthropic fallback on quota/rate-limit errors."""
+    # ── Try OpenAI ────────────────────────────────────────────────────────────
+    openai_key = st.secrets.get("OPENAI_API_KEY")
+    if openai_key:
+        try:
+            client = OpenAI(api_key=openai_key)
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+            )
+            return response.choices[0].message.content or ""
+        except OpenAIRateLimitError:
+            pass  # quota/rate-limit → fall through to Anthropic
+
+    # ── Fallback: Anthropic ───────────────────────────────────────────────────
+    anthropic_key = st.secrets.get("ANTHROPIC_API_KEY")
+    if not anthropic_key:
+        st.error("❌ OpenAI quota exceeded and no ANTHROPIC_API_KEY set as fallback.")
+        st.stop()
+
+    client = anthropic.Anthropic(api_key=anthropic_key)
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4096,
+        temperature=temperature,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
+
+
+def _analyze_serp_intent(serp_results: list) -> str:
+    serp_text = "\n".join(
+        f"{r['title']}: {r['snippet']}" for r in serp_results if "title" in r
+    )
+    prompt = f"""
+Analyze the following Google search results and infer the dominant search intent.
+Then summarize it into two parts:
+1. Type of search intent (e.g., informational, transactional, navigational, or commercial investigation)
+2. A short explanation (max two sentences) describing what users likely want to achieve.
+
+Results:
+{serp_text}
+"""
+    return _run_completion(prompt, temperature=0.7)
 
 _DEFAULT_HEADERS = {
     "User-Agent": (
@@ -89,8 +133,7 @@ def _load_languages() -> list[dict]:
     return sorted(langs, key=lambda x: x["label"])
 
 
-def extract_competitor_data(url: str, model: str = "gpt-4o-mini",
-                            prefetched_markdown: str = None) -> dict:
+def extract_competitor_data(url: str, prefetched_markdown: str = None) -> dict:
     if prefetched_markdown is not None:
         markdown_content = prefetched_markdown
     else:
@@ -149,13 +192,7 @@ Article content:
 {truncated}
 """
 
-    response = _get_openai_client().chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
-    )
-
-    raw = response.choices[0].message.content or ""
+    raw = _run_completion(prompt, temperature=0.2)
     cleaned = re.sub(r"```json|```", "", raw).strip()
 
     try:
@@ -447,7 +484,7 @@ if raw_serp and st.session_state.get("sc_phase") == "pick":
         with st.status("⚙️ Running analysis…", expanded=True) as status:
 
             st.write("🧠 Analysing overall SERP intent…")
-            serp_summary = analyze_serp_intent(selected)
+            serp_summary = _analyze_serp_intent(selected)
             st.write("✅ SERP intent done.")
 
             for idx, res in enumerate(selected, 1):
