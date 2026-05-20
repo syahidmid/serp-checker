@@ -1,0 +1,9 @@
+streamlit>=1.41.0
+openai>=1.0.0
+anthropic
+pandas
+requests
+beautifulsoup4
+markdownify
+pycountry
+geonamescache
