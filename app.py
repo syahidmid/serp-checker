@@ -19,7 +19,9 @@ from openai import OpenAI
 import json
 import re
 
-_openai_client = OpenAI()
+def _get_openai_client() -> OpenAI:
+    api_key = st.secrets.get("OPENAI_API_KEY") or None
+    return OpenAI(api_key=api_key)
 
 _DEFAULT_HEADERS = {
     "User-Agent": (
@@ -147,7 +149,7 @@ Article content:
 {truncated}
 """
 
-    response = _openai_client.chat.completions.create(
+    response = _get_openai_client().chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
